@@ -18,10 +18,12 @@ on a host where sendspin-cli is not installed yet.
   clear message. Only the `armv6` archive also loads on bookworm.
 - Facts must be gathered: the runtime package names (`libasound2t64` vs. `libasound2`)
   depend on `ansible_facts['distribution_release']`.
-- **avahi-daemon must not be masked**, since servers find the player via mDNS. The
-  collection's `rpi_avahi` role masks it by default: set `rpi_avahi_disable: false`
-  for your Sendspin hosts. The role stops with a hint if avahi is masked; it doesn't
-  unmask it behind another role's back.
+- **mDNS or manual setup.** By default the player advertises itself via mDNS, which
+  needs a running avahi-daemon. The collection's `rpi_avahi` role masks avahi by
+  default. Then either set `rpi_avahi_disable: false`, or set
+  `sendspin_player_mdns: false` and add the player to the server by hand (see below).
+  If avahi is masked while mDNS is on, the role stops with a hint. It doesn't unmask
+  avahi behind another role's back.
 - A `dmix` PCM in `/etc/asound.conf` that **two different users can share**. See below.
   The role does not manage `/etc/asound.conf`, since the sound card is host specific.
 
@@ -87,6 +89,7 @@ The pairings and the player's identity key live in the state directory
 | `sendspin_player_input`                  | `""`                       | Capture device to stream to the server (mic / line-in)                     |
 | `sendspin_player_hook_start` / `_stop`   | `""`                       | Shell commands run on stream start/stop                                    |
 | `sendspin_player_log_level`              | `info`                     | `none` … `verbose`                                                         |
+| `sendspin_player_mdns`                   | `true`                     | Advertise via mDNS (needs avahi-daemon); `false` = add the player by hand  |
 | `sendspin_player_extra_config`           | `{}`                       | Any other config key, e.g. `{"mdns-name": "Kitchen"}`                      |
 | `sendspin_player_service_enabled`        | `true`                     | Enable and start the unit                                                  |
 | `sendspin_player_state_on_tmpfs`         | `false`                    | State on `/run` to spare the SD card (see below)                           |
@@ -101,6 +104,18 @@ It survives service restarts but not a reboot. After a reboot the player has a
 **new identity and no pairings**, and its volume, mute and delay are reset. Combine
 it with `sendspin_player_allow_unpaired: true`, or be ready to re-pair after every
 reboot.
+
+### Without mDNS
+
+With `sendspin_player_mdns: false` the role doesn't install or start avahi-daemon,
+and the player doesn't advertise itself. Add it to the server (e.g. Music Assistant)
+by URL instead:
+
+```
+ws://<host>:8928/sendspin        # 8928 = sendspin_player_port
+```
+
+The player keeps listening on that port, so pairing works the same way.
 
 ### Wi-Fi power saving
 

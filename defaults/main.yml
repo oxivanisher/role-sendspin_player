@@ -60,7 +60,12 @@ sendspin_player_hook_stop: ""
 # none, error, warn, info, debug, verbose
 sendspin_player_log_level: info
 
-# Any other config keys, e.g. { "mdns-name": "Kitchen", "no-mdns": false }
+# Advertise the player via mDNS (needs avahi-daemon) so servers find it on their own.
+# false = no avahi-daemon needed; add the player to the server by hand as
+# ws://<host>:<sendspin_player_port>/sendspin.
+sendspin_player_mdns: true
+
+# Any other config keys, e.g. { "mdns-name": "Kitchen" }
 sendspin_player_extra_config: {}
 
 # --- Service / host ----------------------------------------------------------
@@ -79,6 +84,8 @@ sendspin_player_check_glibc: true
 
 # Runtime libraries the binary links against (see BUILD-INFO.txt in the release).
 # Releases before the 64-bit time_t transition use the names without "t64".
+# The dns_sd library is always needed (it is linked); avahi-daemon itself is
+# only added when sendspin_player_mdns is true.
 sendspin_player_pre_t64: "{{ ansible_facts['distribution_release'] | default('') in ['bullseye', 'bookworm', 'focal', 'jammy'] }}"
 sendspin_player_packages:
   - "{{ 'libasound2' if sendspin_player_pre_t64 else 'libasound2t64' }}"
@@ -86,4 +93,3 @@ sendspin_player_packages:
   - libpulse0
   - libportaudio2
   - libavahi-compat-libdnssd1
-  - avahi-daemon

@@ -48,7 +48,7 @@
 
 - name: Install runtime dependencies
   ansible.builtin.apt:
-    name: "{{ sendspin_player_packages }}"
+    name: "{{ sendspin_player_packages + (['avahi-daemon'] if sendspin_player_mdns | bool else []) }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -215,6 +215,7 @@
   ansible.builtin.systemd_service:
     name: avahi-daemon.service
   register: sendspin_player_avahi_unit
+  when: sendspin_player_mdns | bool
   become: true
 
 # Don't silently undo another role (e.g. oxivanisher.raspberry_pi.rpi_avahi)
@@ -222,10 +223,14 @@
 - name: Fail if avahi-daemon is masked
   ansible.builtin.fail:
     msg: >-
-      avahi-daemon is masked on this host, but Sendspin servers find the player via mDNS.
-      If oxivanisher.raspberry_pi.rpi_avahi masked it, set rpi_avahi_disable: false for this
-      host and run that role again; otherwise run `systemctl unmask avahi-daemon.service avahi-daemon.socket`.
-  when: sendspin_player_avahi_unit.status.UnitFileState | default('') == 'masked'
+      avahi-daemon is masked on this host, but sendspin_player_mdns is true. Either set
+      sendspin_player_mdns: false and add the player to the server by hand
+      (ws://{{ inventory_hostname }}:{{ sendspin_player_port }}/sendspin), or unmask avahi:
+      with oxivanisher.raspberry_pi.rpi_avahi set rpi_avahi_disable: false and run that role again,
+      otherwise run `systemctl unmask avahi-daemon.service avahi-daemon.socket`.
+  when:
+    - sendspin_player_mdns | bool
+    - sendspin_player_avahi_unit.status.UnitFileState | default('') == 'masked'
 
 # In --check mode a freshly "installed" avahi-daemon has no unit yet.
 - name: Ensure avahi-daemon is running (mDNS discovery)
@@ -233,7 +238,9 @@
     name: avahi-daemon
     state: started
     enabled: true
-  when: not (ansible_check_mode and sendspin_player_apt is changed)
+  when:
+    - sendspin_player_mdns | bool
+    - not (ansible_check_mode and sendspin_player_apt is changed)
   become: true
 
 - name: Flush handlers before managing the service

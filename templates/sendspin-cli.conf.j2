@@ -10,6 +10,7 @@ buffer-ms = {{ sendspin_player_buffer_ms }}
 output-delay = {{ sendspin_player_output_delay }}
 allow-unpaired = {{ sendspin_player_allow_unpaired | bool | lower }}
 fixed-volume = {{ sendspin_player_fixed_volume | bool | lower }}
+no-mdns = {{ (not (sendspin_player_mdns | bool)) | lower }}
 log-level = {{ sendspin_player_log_level }}
 # Ignored by the service (its ExecStart passes it), but lets
 # `sudo sendspin-cli status` find the socket without flags.
