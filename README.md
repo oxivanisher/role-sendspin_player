@@ -18,6 +18,10 @@ on a host where sendspin-cli is not installed yet.
   clear message. Only the `armv6` archive also loads on bookworm.
 - Facts must be gathered: the runtime package names (`libasound2t64` vs. `libasound2`)
   depend on `ansible_facts['distribution_release']`.
+- **avahi-daemon must not be masked**, since servers find the player via mDNS. The
+  collection's `rpi_avahi` role masks it by default: set `rpi_avahi_disable: false`
+  for your Sendspin hosts. The role stops with a hint if avahi is masked; it doesn't
+  unmask it behind another role's back.
 - A `dmix` PCM in `/etc/asound.conf` that **two different users can share**. See below.
   The role does not manage `/etc/asound.conf`, since the sound card is host specific.
 

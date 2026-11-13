@@ -210,6 +210,23 @@
   become: true
   notify: Restart NetworkManager
 
+# With only `name`, the module changes nothing and just reports the unit's status.
+- name: Check whether avahi-daemon is masked
+  ansible.builtin.systemd_service:
+    name: avahi-daemon.service
+  register: sendspin_player_avahi_unit
+  become: true
+
+# Don't silently undo another role (e.g. oxivanisher.raspberry_pi.rpi_avahi)
+# that masked avahi on purpose; say what to change instead.
+- name: Fail if avahi-daemon is masked
+  ansible.builtin.fail:
+    msg: >-
+      avahi-daemon is masked on this host, but Sendspin servers find the player via mDNS.
+      If oxivanisher.raspberry_pi.rpi_avahi masked it, set rpi_avahi_disable: false for this
+      host and run that role again; otherwise run `systemctl unmask avahi-daemon.service avahi-daemon.socket`.
+  when: sendspin_player_avahi_unit.status.UnitFileState | default('') == 'masked'
+
 # In --check mode a freshly "installed" avahi-daemon has no unit yet.
 - name: Ensure avahi-daemon is running (mDNS discovery)
   ansible.builtin.systemd_service:
