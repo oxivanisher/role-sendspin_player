@@ -53,6 +53,7 @@
     update_cache: true
     cache_valid_time: 3600
   register: sendspin_player_apt
+  become: true
 
 - name: Check installed sendspin-cli version
   ansible.builtin.command: /usr/local/bin/sendspin-cli --version
@@ -75,6 +76,7 @@
 
 - name: Install sendspin-cli
   when: sendspin_player_needs_install
+  become: true
   block:
     - name: Create download directory
       ansible.builtin.file:
@@ -143,6 +145,7 @@
     group: "{{ omit if sendspin_player_check_fresh else 'sendspin-cli' }}"
     mode: "0640"
   notify: Restart sendspin-cli
+  become: true
 
 - name: Create drop-in directory
   ansible.builtin.file:
@@ -152,6 +155,7 @@
     group: root
     mode: "0755"
   when: sendspin_player_state_on_tmpfs
+  become: true
 
 # RuntimeDirectoryPreserve keeps /run/sendspin-cli (and so the state) across
 # service restarts; only a reboot clears it.
@@ -169,6 +173,7 @@
     group: root
     mode: "0644"
   when: sendspin_player_state_on_tmpfs
+  become: true
   notify:
     - Reload systemd
     - Restart sendspin-cli
@@ -178,6 +183,7 @@
     path: /etc/systemd/system/sendspin-cli.service.d/state-tmpfs.conf
     state: absent
   when: not sendspin_player_state_on_tmpfs
+  become: true
   notify:
     - Reload systemd
     - Restart sendspin-cli
@@ -193,6 +199,7 @@
     group: root
     mode: "0644"
   when: sendspin_player_disable_wifi_powersave
+  become: true
   notify: Restart NetworkManager
 
 - name: Remove Wi-Fi power saving drop-in (NetworkManager)
@@ -200,6 +207,7 @@
     path: /etc/NetworkManager/conf.d/99-sendspin-wifi-powersave-off.conf
     state: absent
   when: not sendspin_player_disable_wifi_powersave
+  become: true
   notify: Restart NetworkManager
 
 # In --check mode a freshly "installed" avahi-daemon has no unit yet.
@@ -209,6 +217,7 @@
     state: started
     enabled: true
   when: not (ansible_check_mode and sendspin_player_apt is changed)
+  become: true
 
 - name: Flush handlers before managing the service
   ansible.builtin.meta: flush_handlers
@@ -219,3 +228,4 @@
     enabled: "{{ sendspin_player_service_enabled }}"
     state: "{{ 'started' if sendspin_player_service_enabled else 'stopped' }}"
   when: not sendspin_player_check_fresh
+  become: true

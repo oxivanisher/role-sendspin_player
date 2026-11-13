@@ -2,11 +2,13 @@
 - name: Reload systemd
   ansible.builtin.systemd_service:
     daemon_reload: true
+  become: true
 
 - name: Restart sendspin-cli
   ansible.builtin.systemd_service:
     name: sendspin-cli
     state: restarted
+  become: true
   when:
     - sendspin_player_service_enabled
     - not sendspin_player_check_fresh
@@ -15,3 +17,4 @@
   ansible.builtin.systemd_service:
     name: NetworkManager
     state: restarted
+  become: true
