@@ -1,0 +1,40 @@
+# {{ ansible_managed }}
+# Keys are sendspin-cli's long flag names without dashes; see `sendspin-cli --help`.
+# The player reads this once at startup: `systemctl restart sendspin-cli` after edits.
+
+name = {{ sendspin_player_name }}
+output = {{ sendspin_player_output }}
+port = {{ sendspin_player_port }}
+buffer-ms = {{ sendspin_player_buffer_ms }}
+# First-run default only; a value remembered in the state file wins afterwards.
+output-delay = {{ sendspin_player_output_delay }}
+allow-unpaired = {{ sendspin_player_allow_unpaired | bool | lower }}
+fixed-volume = {{ sendspin_player_fixed_volume | bool | lower }}
+log-level = {{ sendspin_player_log_level }}
+# Ignored by the service (its ExecStart passes it), but lets
+# `sudo sendspin-cli status` find the socket without flags.
+control-socket = /run/sendspin-cli/control.sock
+{% if sendspin_player_pairing_code %}
+pairing-code = {{ sendspin_player_pairing_code }}
+{% endif %}
+{% if sendspin_player_server %}
+server = {{ sendspin_player_server }}
+{% endif %}
+{% if sendspin_player_id %}
+id = {{ sendspin_player_id }}
+{% endif %}
+{% if sendspin_player_audio_format %}
+audio-format = {{ sendspin_player_audio_format }}
+{% endif %}
+{% if sendspin_player_input %}
+input = {{ sendspin_player_input }}
+{% endif %}
+{% if sendspin_player_hook_start %}
+hook-start = {{ sendspin_player_hook_start }}
+{% endif %}
+{% if sendspin_player_hook_stop %}
+hook-stop = {{ sendspin_player_hook_stop }}
+{% endif %}
+{% for key, value in sendspin_player_extra_config.items() %}
+{{ key }} = {{ (value | lower) if value is boolean else value }}
+{% endfor %}

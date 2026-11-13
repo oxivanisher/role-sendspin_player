@@ -1,0 +1,19 @@
+---
+galaxy_info:
+  role_name: sendspin_player
+  namespace: oxivanisher
+  author: Marc Urben
+  description: Installs sendspin-cli so a Raspberry Pi (e.g. one already running MPD) becomes a Sendspin multi-room player.
+  company: Thunderbluff
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+  galaxy_tags:
+    - raspberrypi
+    - audio
+    - sendspin
+    - multiroom
+dependencies: []

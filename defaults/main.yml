@@ -1,0 +1,89 @@
+---
+# Release of sendspin-cli (https://github.com/Sendspin/sendspin-cpp-cli) to install.
+# Bumping this re-installs on the next run.
+sendspin_player_version: "0.4.0"
+sendspin_player_release_base_url: "https://github.com/Sendspin/sendspin-cpp-cli/releases/download/v{{ sendspin_player_version }}"
+sendspin_player_download_dir: /var/cache/sendspin-cli
+
+# --- Player settings, rendered into /etc/sendspin-cli.conf ---------------------
+# Keys in that file are sendspin-cli's long flag names without the dashes.
+
+# Friendly name shown in Music Assistant / the controller.
+sendspin_player_name: "{{ inventory_hostname_short }}"
+
+# ALSA PCM to play on. "plug:dmix" matches the MPD output, so both can play
+# at the same time without fighting over the card. Run `sendspin-cli -l` on a
+# host to see what else is available.
+sendspin_player_output: "plug:dmix"
+
+# Port of the player's own WebSocket server (advertised via mDNS).
+sendspin_player_port: 8928
+
+# Audio the output backend keeps queued (10-2000 ms). Upstream recommends
+# raising the default of 100 on a Pi if you hear clicks or dropouts.
+sendspin_player_buffer_ms: 250
+
+# Latency your hardware adds after the audio port (0-5000 ms).
+# NOTE: this is only a first-run default. Once a server or `sendspin-cli delay`
+# has set a value, the remembered one in the state file wins.
+sendspin_player_output_delay: 0
+
+# Since 0.4.0 a server must pair with the player before it can play.
+# true = any server on the network may play without pairing (upstream default: false).
+sendspin_player_allow_unpaired: false
+
+# Static 8-digit pairing code (confirm attempts with `sendspin-cli pair confirm`).
+# Empty = the player shows a fresh 6-digit code per attempt. Treat it like a secret.
+sendspin_player_pairing_code: ""
+
+# Play at full volume, unmuted, and let the server set neither (line-out into an amp).
+sendspin_player_fixed_volume: false
+
+# Leave empty to wait for a server to discover the player via mDNS (normal).
+# Set to "<host>[:<port>]", a ws:// URL or "mdns:[<name>]" to dial out instead.
+sendspin_player_server: ""
+
+# Stable client id. Empty = derived from the interface MAC (fine for one player per Pi).
+sendspin_player_id: ""
+
+# Preferred formats in priority order, e.g. "flac:48000:24:2,pcm:48000:24:2".
+# Empty = derived from the device.
+sendspin_player_audio_format: ""
+
+# Capture device to stream to the server (microphone / line-in). Empty = none.
+sendspin_player_input: ""
+
+# Shell commands run when a stream starts / stops, e.g. "mpc -q pause".
+sendspin_player_hook_start: ""
+sendspin_player_hook_stop: ""
+
+# none, error, warn, info, debug, verbose
+sendspin_player_log_level: info
+
+# Any other config keys, e.g. { "mdns-name": "Kitchen", "no-mdns": false }
+sendspin_player_extra_config: {}
+
+# --- Service / host ----------------------------------------------------------
+sendspin_player_service_enabled: true
+
+# Keep the state file (volume, mute, output delay, pairings) on tmpfs to spare
+# the SD card. Trade-off: those values are forgotten on reboot.
+sendspin_player_state_on_tmpfs: false
+
+# Disable Wi-Fi power saving via NetworkManager. A sleeping NIC makes the
+# player drop out of the controller after a few idle minutes.
+sendspin_player_disable_wifi_powersave: false
+
+# The arm64/armv7/x86_64 archives need glibc >= 2.38 (Debian/Raspberry Pi OS trixie).
+sendspin_player_check_glibc: true
+
+# Runtime libraries the binary links against (see BUILD-INFO.txt in the release).
+# Releases before the 64-bit time_t transition use the names without "t64".
+sendspin_player_pre_t64: "{{ ansible_facts['distribution_release'] | default('') in ['bullseye', 'bookworm', 'focal', 'jammy'] }}"
+sendspin_player_packages:
+  - "{{ 'libasound2' if sendspin_player_pre_t64 else 'libasound2t64' }}"
+  - "{{ 'libpipewire-0.3-0' if sendspin_player_pre_t64 else 'libpipewire-0.3-0t64' }}"
+  - libpulse0
+  - libportaudio2
+  - libavahi-compat-libdnssd1
+  - avahi-daemon

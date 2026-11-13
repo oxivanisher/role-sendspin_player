@@ -1,0 +1,221 @@
+---
+# The probes below only read the host, so they also run in --check mode;
+# everything after them depends on their output.
+- name: Determine userland architecture
+  ansible.builtin.command: dpkg --print-architecture
+  register: sendspin_player_dpkg_arch
+  changed_when: false
+  check_mode: false
+
+- name: Determine CPU (only matters for ARMv6 boards on armhf)
+  ansible.builtin.command: uname -m
+  register: sendspin_player_uname_m
+  changed_when: false
+  check_mode: false
+
+# Upstream is explicit: pick by userland, not `uname -m`, because a 32-bit
+# Raspberry Pi OS on a Pi 4 boots a 64-bit kernel.
+- name: Select release archive
+  ansible.builtin.set_fact:
+    sendspin_player_leg: >-
+      {{ {'amd64': 'linux-x86_64', 'arm64': 'linux-arm64'}.get(sendspin_player_dpkg_arch.stdout)
+         or (('linux-armv6' if sendspin_player_uname_m.stdout == 'armv6l' else 'linux-armv7')
+             if sendspin_player_dpkg_arch.stdout == 'armhf' else '') }}
+
+- name: Fail on an architecture without a release build
+  ansible.builtin.fail:
+    msg: "sendspin-cli publishes no build for userland '{{ sendspin_player_dpkg_arch.stdout }}'."
+  when: sendspin_player_leg | length == 0
+
+- name: Check glibc version
+  ansible.builtin.command: getconf GNU_LIBC_VERSION
+  register: sendspin_player_glibc
+  changed_when: false
+  check_mode: false
+  when: sendspin_player_check_glibc
+
+- name: Fail if glibc is too old for this archive
+  ansible.builtin.fail:
+    msg: >-
+      sendspin-cli {{ sendspin_player_version }} ({{ sendspin_player_leg }}) needs glibc >= 2.38,
+      i.e. Debian / Raspberry Pi OS trixie. This host has
+      {{ sendspin_player_glibc.stdout | default('?') }} (bookworm ships 2.36).
+      Upgrade the OS, build from source, or set sendspin_player_check_glibc: false to try anyway.
+  when:
+    - sendspin_player_check_glibc
+    - sendspin_player_leg != 'linux-armv6'
+    - (sendspin_player_glibc.stdout.split() | last) is version('2.38', '<')
+
+- name: Install runtime dependencies
+  ansible.builtin.apt:
+    name: "{{ sendspin_player_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: sendspin_player_apt
+
+- name: Check installed sendspin-cli version
+  ansible.builtin.command: /usr/local/bin/sendspin-cli --version
+  register: sendspin_player_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# `--version` prints "sendspin-cli X.Y.Z".
+- name: Decide whether sendspin-cli needs to be (re)installed
+  ansible.builtin.set_fact:
+    sendspin_player_needs_install: >-
+      {{ sendspin_player_installed.rc != 0 or
+         (sendspin_player_installed.stdout | regex_search('[0-9]+\.[0-9]+\.[0-9]+') | default('', true))
+         != sendspin_player_version }}
+    # In --check mode on a host without sendspin-cli, nothing gets unpacked, so
+    # the unit and the sendspin-cli account don't exist yet. Tasks that need
+    # them are skipped (or relaxed) in that case instead of failing.
+    sendspin_player_check_fresh: "{{ ansible_check_mode and sendspin_player_installed.rc != 0 }}"
+
+- name: Install sendspin-cli
+  when: sendspin_player_needs_install
+  block:
+    - name: Create download directory
+      ansible.builtin.file:
+        path: "{{ sendspin_player_download_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      register: sendspin_player_download_dir_result
+
+    # get_url fails in --check mode if the directory above doesn't exist yet.
+    - name: Download release archive (verified against SHA256SUMS)
+      when: not (ansible_check_mode and sendspin_player_download_dir_result is changed)
+      ansible.builtin.get_url:
+        url: "{{ sendspin_player_release_base_url }}/sendspin-cli-{{ sendspin_player_version }}-{{ sendspin_player_leg }}.tar.gz"
+        dest: "{{ sendspin_player_download_dir }}/sendspin-cli-{{ sendspin_player_version }}-{{ sendspin_player_leg }}.tar.gz"
+        checksum: "sha256:{{ sendspin_player_release_base_url }}/SHA256SUMS"
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Extracting only the `usr` member keeps BUILD-INFO.txt out of `/`.
+    - name: Unpack payload into /usr/local
+      ansible.builtin.command:
+        argv:
+          - tar
+          - -xzf
+          - "{{ sendspin_player_download_dir }}/sendspin-cli-{{ sendspin_player_version }}-{{ sendspin_player_leg }}.tar.gz"
+          - --strip-components=1
+          - -C
+          - /
+          - "sendspin-cli-{{ sendspin_player_version }}-{{ sendspin_player_leg }}/usr"
+      changed_when: true
+      notify:
+        - Reload systemd
+        - Restart sendspin-cli
+
+    # A tarball has no postinst; without this the unit fails with 217/USER.
+    # The shipped sysusers fragment also puts the account into `audio`.
+    - name: Create the sendspin-cli system account
+      ansible.builtin.command: systemd-sysusers
+      changed_when: true
+
+    - name: Find archives of other releases
+      ansible.builtin.find:
+        paths: "{{ sendspin_player_download_dir }}"
+        patterns: "sendspin-cli-*.tar.gz"
+        excludes: "sendspin-cli-{{ sendspin_player_version }}-{{ sendspin_player_leg }}.tar.gz"
+      register: sendspin_player_old_archives
+      when: not (ansible_check_mode and sendspin_player_download_dir_result is changed)
+
+    - name: Remove archives of other releases
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ sendspin_player_old_archives.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+- name: Render /etc/sendspin-cli.conf
+  ansible.builtin.template:
+    src: sendspin-cli.conf.j2
+    dest: /etc/sendspin-cli.conf
+    owner: root
+    # The group only exists after the first real install.
+    group: "{{ omit if sendspin_player_check_fresh else 'sendspin-cli' }}"
+    mode: "0640"
+  notify: Restart sendspin-cli
+
+- name: Create drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/sendspin-cli.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: sendspin_player_state_on_tmpfs
+
+# RuntimeDirectoryPreserve keeps /run/sendspin-cli (and so the state) across
+# service restarts; only a reboot clears it.
+- name: Manage state-on-tmpfs drop-in
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sendspin-cli.service.d/state-tmpfs.conf
+    content: |
+      # Managed by Ansible (sendspin_player). Keeps the state file on tmpfs
+      # to spare the SD card; volume, mute, output delay and pairings reset on reboot.
+      [Service]
+      RuntimeDirectoryPreserve=yes
+      ExecStart=
+      ExecStart=/usr/local/bin/sendspin-cli --control-socket /run/sendspin-cli/control.sock --state-dir /run/sendspin-cli
+    owner: root
+    group: root
+    mode: "0644"
+  when: sendspin_player_state_on_tmpfs
+  notify:
+    - Reload systemd
+    - Restart sendspin-cli
+
+- name: Remove state-on-tmpfs drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/sendspin-cli.service.d/state-tmpfs.conf
+    state: absent
+  when: not sendspin_player_state_on_tmpfs
+  notify:
+    - Reload systemd
+    - Restart sendspin-cli
+
+- name: Manage Wi-Fi power saving drop-in (NetworkManager)
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/99-sendspin-wifi-powersave-off.conf
+    content: |
+      # Managed by Ansible (sendspin_player). 2 = disable power saving.
+      [connection]
+      wifi.powersave = 2
+    owner: root
+    group: root
+    mode: "0644"
+  when: sendspin_player_disable_wifi_powersave
+  notify: Restart NetworkManager
+
+- name: Remove Wi-Fi power saving drop-in (NetworkManager)
+  ansible.builtin.file:
+    path: /etc/NetworkManager/conf.d/99-sendspin-wifi-powersave-off.conf
+    state: absent
+  when: not sendspin_player_disable_wifi_powersave
+  notify: Restart NetworkManager
+
+# In --check mode a freshly "installed" avahi-daemon has no unit yet.
+- name: Ensure avahi-daemon is running (mDNS discovery)
+  ansible.builtin.systemd_service:
+    name: avahi-daemon
+    state: started
+    enabled: true
+  when: not (ansible_check_mode and sendspin_player_apt is changed)
+
+- name: Flush handlers before managing the service
+  ansible.builtin.meta: flush_handlers
+
+- name: Manage sendspin-cli service
+  ansible.builtin.systemd_service:
+    name: sendspin-cli
+    enabled: "{{ sendspin_player_service_enabled }}"
+    state: "{{ 'started' if sendspin_player_service_enabled else 'stopped' }}"
+  when: not sendspin_player_check_fresh
